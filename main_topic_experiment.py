@@ -1,14 +1,13 @@
+# main_topic_experiment.py
+
+import argparse
 import json
 import os
 import re
-from agent import Agent
+
+from agent_topic import Agent
 from moderator import Moderator
-
-
-# This file runs the full multi-agent simulation.
-# It builds the 4 agents, runs them through multiple rounds of discussion,
-# and saves the results into an auto-numbered results folder:
-# results/1.0, results/2.0, results/3.0, ...
+from topics import TOPIC_CONFIGS
 
 
 def get_next_output_dir(base_dir="results"):
@@ -25,33 +24,24 @@ def get_next_output_dir(base_dir="results"):
     return output_dir
 
 
-def build_agents():
-    return [
-        Agent(
-            "Alice",
-            "Alice is generally optimistic about educational technology, though she is genuinely open to concerns about equity and over-reliance.",
-            "AI tools can support learning and creativity, but I'm still figuring out where the right limits are.",
-            "Promote the benefits of AI in education while staying open to criticism that might sharpen my view."
-        ),
-        Agent(
-            "Bob",
-            "Bob is skeptical about AI in schools, but he acknowledges that some thoughtful applications could be genuinely useful.",
-            "AI tools carry real risks of dependency and misuse, though I can imagine responsible use cases.",
-            "Surface the risks and blind spots in overly optimistic views, while remaining open to evidence that changes my mind."
-        ),
-        Agent(
-            "Carol",
-            "Carol is balanced and tries to mediate.",
-            "AI tools are useful, but schools need clear boundaries.",
-            "Mediate between both sides and push the group toward balanced guidelines."
-        ),
-        Agent(
-            "David",
-            "David starts relatively undecided and is more open to being shaped by the discussion.",
-            "I am still forming my view and want to understand what responsible use should look like.",
-            "Listen closely to the others and gradually form a reasonable position."
+def build_agents_from_config(topic_config: dict):
+    topic_label = topic_config["topic"]
+    theme_keywords = topic_config.get("theme_keywords", [])
+
+    agents = []
+    for agent_cfg in topic_config["agents"]:
+        agents.append(
+            Agent(
+                name=agent_cfg["name"],
+                persona=agent_cfg["persona"],
+                initial_belief=agent_cfg["initial_belief"],
+                initial_goal=agent_cfg["initial_goal"],
+                topic_label=topic_label,
+                stance_target=topic_label,
+                theme_keywords=theme_keywords,
+            )
         )
-    ]
+    return agents
 
 
 def save_trial_json(trial_id: int, topic: str, agents: list[Agent], moderator_summaries: list[dict], output_dir: str) -> None:
@@ -116,17 +106,35 @@ def save_trial_summary(trial_id: int, topic: str, agents: list[Agent], moderator
             f.write("\n")
 
 
-def run_one_simulation(trial_id: int, output_dir: str, rounds: int = 5):
-    topic = (
-        "whether students should use AI tools in education, "
-        "and what reasonable shared guidelines the group can agree on"
-    )
-    agents = build_agents()
+def save_overall_summary(all_agents_by_trial: list[list[Agent]], num_trials: int, rounds: int, topic_name: str, output_dir: str) -> None:
+    with open(os.path.join(output_dir, "overall_summary.txt"), "w", encoding="utf-8") as f:
+        f.write("Overall Experiment Summary\n")
+        f.write("==========================\n\n")
+        f.write(f"Topic name: {topic_name}\n")
+        f.write(f"Total trials: {num_trials}\n")
+        f.write(f"Rounds per trial: {rounds}\n\n")
+
+        for i, agents in enumerate(all_agents_by_trial, start=1):
+            f.write(f"Trial {i}\n")
+            for agent in agents:
+                f.write(
+                    f"  {agent.name}\n"
+                    f"    Final belief: {agent.current_belief}\n"
+                    f"    Final goal: {agent.current_goal}\n"
+                    f"    Stance history: {' -> '.join(agent.stance_history)}\n"
+                )
+            f.write("\n")
+
+
+def run_one_simulation(trial_id: int, topic_name: str, topic_config: dict, output_dir: str, rounds: int = 5):
+    topic = topic_config["topic"]
+    agents = build_agents_from_config(topic_config)
     moderator = Moderator()
     moderator_summaries = []
 
     print("\n==============================")
     print(f"TRIAL {trial_id}")
+    print(f"Topic name: {topic_name}")
     print(f"Topic: {topic}")
     print("==============================\n")
 
@@ -200,36 +208,49 @@ def run_one_simulation(trial_id: int, output_dir: str, rounds: int = 5):
     return agents
 
 
-def save_overall_summary(all_agents_by_trial: list[list[Agent]], num_trials: int, rounds: int, output_dir: str) -> None:
-    with open(os.path.join(output_dir, "overall_summary.txt"), "w", encoding="utf-8") as f:
-        f.write("Overall Experiment Summary\n")
-        f.write("==========================\n\n")
-        f.write(f"Total trials: {num_trials}\n")
-        f.write(f"Rounds per trial: {rounds}\n\n")
+def run_experiments(topic_name: str, num_trials: int = 5, rounds: int = 5, output_dir: str = "results/1.0"):
+    if topic_name not in TOPIC_CONFIGS:
+        raise ValueError(f"Unknown topic_name: {topic_name}")
 
-        for i, agents in enumerate(all_agents_by_trial, start=1):
-            f.write(f"Trial {i}\n")
-            for agent in agents:
-                f.write(
-                    f"  {agent.name}\n"
-                    f"    Final belief: {agent.current_belief}\n"
-                    f"    Final goal: {agent.current_goal}\n"
-                    f"    Stance history: {' -> '.join(agent.stance_history)}\n"
-                )
-            f.write("\n")
-
-
-def run_experiments(num_trials: int = 5, rounds: int = 5, output_dir: str = "results/1.0"):
+    topic_config = TOPIC_CONFIGS[topic_name]
     all_agents_by_trial = []
 
     for trial_id in range(1, num_trials + 1):
-        agents = run_one_simulation(trial_id, output_dir=output_dir, rounds=rounds)
+        agents = run_one_simulation(
+            trial_id=trial_id,
+            topic_name=topic_name,
+            topic_config=topic_config,
+            output_dir=output_dir,
+            rounds=rounds,
+        )
         all_agents_by_trial.append(agents)
 
-    save_overall_summary(all_agents_by_trial, num_trials, rounds, output_dir)
+    save_overall_summary(all_agents_by_trial, num_trials, rounds, topic_name, output_dir)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--topic_name",
+        type=str,
+        default="autonomous_vehicles",
+        help="Topic key from TOPIC_CONFIGS"
+    )
+    parser.add_argument("--num_trials", type=int, default=5)
+    parser.add_argument("--rounds", type=int, default=5)
+    args = parser.parse_args()
+
+    output_dir = get_next_output_dir("results")
+    print(f"Saving results to: {output_dir}")
+    print(f"Using topic_name: {args.topic_name}")
+
+    run_experiments(
+        topic_name=args.topic_name,
+        num_trials=args.num_trials,
+        rounds=args.rounds,
+        output_dir=output_dir
+    )
 
 
 if __name__ == "__main__":
-    output_dir = get_next_output_dir("results")
-    print(f"Saving results to: {output_dir}")
-    run_experiments(num_trials=5, rounds=5, output_dir=output_dir)
+    main()

@@ -9,7 +9,7 @@ class MemoryItem:
     speaker: str
     timestamp: float = field(default_factory=time.time)
     importance: float = 1.0
-    memory_type: str = "observation"   # observation / reflection / reasoning / belief_update
+    memory_type: str = "observation"   # observation / reflection / reasoning / belief_update / moderator_summary / moderator_update
     last_accessed: float = field(default_factory=time.time)
     round_id: int = 0
     metadata: Optional[dict] = field(default_factory=dict)

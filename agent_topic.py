@@ -1,20 +1,35 @@
+# agent_topic.py
+
 import json
 from memory import MemoryItem, MemoryStream
-from retriever import MemoryRetriever
+from retriever_topic import MemoryRetriever
 from reflector import Reflector
 from llm import generate_response
 
 
 class Agent:
-    def __init__(self, name: str, persona: str, initial_belief: str, initial_goal: str):
+    def __init__(
+        self,
+        name: str,
+        persona: str,
+        initial_belief: str,
+        initial_goal: str,
+        topic_label: str,
+        stance_target: str,
+        theme_keywords: list[str] | None = None
+    ):
         self.name = name
         self.persona = persona
         self.initial_belief = initial_belief
         self.current_belief = initial_belief
         self.current_goal = initial_goal
 
+        self.topic_label = topic_label
+        self.stance_target = stance_target
+        self.theme_keywords = theme_keywords or []
+
         self.memory_stream = MemoryStream()
-        self.retriever = MemoryRetriever()
+        self.retriever = MemoryRetriever(extra_keywords=self.theme_keywords)
         self.reflector = Reflector()
 
         self.stance_history = []
@@ -147,8 +162,9 @@ class Agent:
             score += 1.5
 
         content_keywords = [
-            "harm", "misuse", "fairness", "creativity", "dependency", "over-rely",
-            "critical thinking", "guideline", "boundary", "risk", "benefit", "independent"
+            "safety", "risk", "benefit", "regulation", "ethics", "liability",
+            "trust", "oversight", "testing", "human error", "accessibility",
+            "efficiency", "accountability", "accident", "public adoption"
         ]
         content_hits = sum(1 for kw in content_keywords if kw in lower)
         score += min(content_hits * 0.75, 2.5)
@@ -171,7 +187,7 @@ class Agent:
 
     def classify_stance(self, text: str) -> str:
         prompt = f"""
-You are labeling one discussion message about AI tools in education.
+You are labeling one discussion message about {self.topic_label}.
 
 Message:
 {text}
@@ -182,14 +198,14 @@ Choose exactly one label:
 - balanced
 
 Labeling rules:
-- supportive: mainly advocates for AI use or emphasizes benefits overall
-- skeptical: mainly warns about risks, dependency, misuse, or argues against reliance overall
+- supportive: mainly supports wider adoption, use, or potential benefits overall
+- skeptical: mainly emphasizes risks, failures, safety concerns, ethical concerns, or reasons to slow down adoption overall
 - balanced: genuinely gives comparable weight to both sides or acts as a mediator
 
 Important:
 - Judge the OVERALL stance of the message.
-- If the message mainly emphasizes caution, dependency, or loss of critical thinking, label it skeptical.
-- If the message mainly emphasizes benefits and opportunity, label it supportive.
+- If the message mainly emphasizes caution, failure, accountability, or unresolved risks, label it skeptical.
+- If the message mainly emphasizes benefits, progress, or practical value, label it supportive.
 - Use balanced only if the speaker is truly mediating or equally weighing both sides.
 
 Return only one word:
@@ -207,8 +223,13 @@ balanced
         selected = self.retriever.retrieve(memories, topic, current_round, top_k)
         return [m.content for m in selected]
 
-    def react_step(self, topic: str, current_round: int, selected_memories: list[str],
-                   previous_round_messages: dict = None) -> dict:
+    def react_step(
+        self,
+        topic: str,
+        current_round: int,
+        selected_memories: list[str],
+        previous_round_messages: dict = None
+    ) -> dict:
         if selected_memories:
             memory_block = "\n".join(f"- {m}" for m in selected_memories)
         else:
